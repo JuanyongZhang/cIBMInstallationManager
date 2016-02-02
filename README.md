@@ -2,6 +2,11 @@
 
 PowerShell CmdLets and Class-Based DSC resources to manage IBM Installation Manager on Windows Environments.
 
+To get started using this module just type the command below and the module will be downloaded from [PowerShell Gallery](https://www.powershellgallery.com/packages/cIBMInstallationManager/)
+```shell
+PS> Install-Module -Name cIBMInstallationManager
+```
+
 ## Resources
 
 * **cIBMInstallationManager** installs IBM Installation Manager on target machine.
