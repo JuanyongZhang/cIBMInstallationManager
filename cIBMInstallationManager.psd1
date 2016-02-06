@@ -14,6 +14,9 @@ ModuleVersion = '1.0.1'
 # ID used to uniquely identify this module
 GUID = 'fc4c2ed1-00c4-4fee-93c8-13447d062921'
 
+# Script files (.ps1) that are run in the caller's environment prior to importing this module.
+ScriptsToProcess = @('Classes\IBMProductMedia.ps1')
+
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 NestedModules = @('cIBMInstallationManagerUtils')
 
@@ -55,9 +58,6 @@ PowerShellVersion = '5.0'
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
-
-# Script files (.ps1) that are run in the caller's environment prior to importing this module.
-# ScriptsToProcess = @()
 
 # Type files (.ps1xml) to be loaded when importing this module
 # TypesToProcess = @()

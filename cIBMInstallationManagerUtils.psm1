@@ -1,6 +1,7 @@
 ##############################################################################################################
 ########                           IBM Installation Manager CmdLets                                  #########
 ##############################################################################################################
+Import-Module $PSScriptRoot\Classes\IBMProductMedia.ps1 -ErrorAction Stop
 
 # Global Variables / Resource Configuration
 $IIM_PATH = "HKLM:\Software\IBM\Installation Manager"
@@ -117,38 +118,27 @@ Function Install-IBMInstallationManager() {
             zip x "-o$iimTempDir" $iimMedia | Out-Null
         
             $installLog = Join-Path -Path $iimTempDir -ChildPath "IIM_install_log.txt"
-
-            #Setup IIM Install Process
-            $iim_install = New-object System.Diagnostics.ProcessStartInfo
-            $iim_install.CreateNoWindow = $true
-            $iim_install.UseShellExecute = $false
-            $iim_install.RedirectStandardOutput = $true
-            $iim_install.RedirectStandardError = $true
-            $iim_install.WorkingDirectory = $iimTempDir
-            $iim_install.FileName = (Join-Path -Path $iimTempDir -ChildPath "install.exe")
-            $iim_install.Arguments = @("--launcher.ini","silent-install.ini","-installationDirectory",$iimHome,"-log",$installLog,"-acceptLicense") 
-        
-            #Start installation
-            $process = New-Object System.Diagnostics.Process
-            $process.StartInfo = $iim_install
-            [void]$process.Start()
-            $output = $process.StandardOutput.ReadToEnd()
-            $process.WaitForExit()
-
-            Write-Debug $output
-        
-            if((Test-Path($iimHome)) -and (Get-IBMInstallationManagerRegistryPath)) {
-                Write-Verbose "IBM Installation Manager installed successfully"
-                
-                # Clean up / Workaround for AntiVirus issue - hangs while deleting files
-                Write-Verbose "Attempting to remove temporary installation files, after 1 minute the job will timeout and you may need to delete $iimTempDir directory manually."
-                $rmjob = Start-Job { param($tdir) Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue } -ArgumentList $iimTempDir
-                Wait-Job $rmjob -Timeout 60 | Out-Null
-                Stop-Job $rmjob | Out-Null
-                Receive-Job $rmjob | Out-Null
-                Remove-Job $rmjob | Out-Null
+            $installExe = Join-Path -Path $iimTempDir -ChildPath "install.exe"
+            $installArgs = @("--launcher.ini","silent-install.ini","-installationDirectory",$iimHome,"-log",$installLog,"-acceptLicense")
+            $installProc = Invoke-ProcessHelper $installExe $installArgs $iimTempDir
+            
+            if ($installProc -and ($installProc.ExitCode -eq 0)) {
+                if((Test-Path($iimHome)) -and (Get-IBMInstallationManagerRegistryPath)) {
+                    Write-Verbose "IBM Installation Manager installed successfully"
+                    
+                    # Clean up / Workaround for AntiVirus issue - hangs while deleting files
+                    Write-Verbose "Attempting to remove temporary installation files, after 1 minute the job will timeout and you may need to delete $iimTempDir directory manually."
+                    $rmjob = Start-Job { param($tdir) Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue } -ArgumentList $iimTempDir
+                    Wait-Job $rmjob -Timeout 60 | Out-Null
+                    Stop-Job $rmjob | Out-Null
+                    Receive-Job $rmjob | Out-Null
+                    Remove-Job $rmjob | Out-Null
+                } else {
+                    Write-Error "IBM Installation Manager was not installed.  Please check the installation logs"
+                }
             } else {
-                Write-Error "IBM Installation Manager was not installed.  Please check the installation logs"
+                $errorMsg = (&{if($installProc) {$installProc.StdOut} else {$null}})
+                Write-Error "An error occurred while installing IBM Installation Manager: $errorMsg"
             }
         } finally {
             if ($networkShare) {
@@ -230,40 +220,27 @@ Function Update-IBMInstallationManager() {
             # Update IIM
             $iimToolsDir = Join-Path -Path $iimTempDir -ChildPath "tools" 
             $iimCLExe = Join-Path -Path $iimToolsDir -ChildPath "imcl.exe"
+            $updateProc = Invoke-ProcessHelper $iimCLExe $iimupdate_args $iimToolsDir
             
-            #Setup IIM Update Process
-            $iim_update = New-object System.Diagnostics.ProcessStartInfo
-            $iim_update.CreateNoWindow = $true
-            $iim_update.UseShellExecute = $false
-            $iim_update.RedirectStandardOutput = $true
-            $iim_update.RedirectStandardError = $true
-            $iim_update.WorkingDirectory = $iimToolsDir
-            $iim_update.FileName = $iimCLExe
-            $iim_update.Arguments = $iimupdate_args 
-        
-            #Start installation
-            $process = New-Object System.Diagnostics.Process
-            $process.StartInfo = $iim_update
-            [void]$process.Start()
-            $output = $process.StandardOutput.ReadToEnd()
-            $process.WaitForExit()
-            
-            Write-Debug $output
-            
-            $updatedVersion = (Get-ItemProperty(Get-IBMInstallationManagerRegistryPath)).version
-        
-            if($Version -eq $updatedVersion) {
-                Write-Verbose "IBM Installation Manager updated successfully"
+            if ($updateProc -and ($updateProc.ExitCode -eq 0)) {
+                $updatedVersion = (Get-ItemProperty(Get-IBMInstallationManagerRegistryPath)).version
                 
-                # Clean up / Workaround for AntiVirus issue - hangs while deleting files
-                Write-Verbose "Attempting to remove temporary installation files, after 1 minute the job will timeout and you may need to delete $iimTempDir directory manually."
-                $rmjob = Start-Job { param($tdir) Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue } -ArgumentList $iimTempDir
-                Wait-Job $rmjob -Timeout 60 | Out-Null
-                Stop-Job $rmjob | Out-Null
-                Receive-Job $rmjob | Out-Null
-                Remove-Job $rmjob | Out-Null
+                if($Version -eq $updatedVersion) {
+                    Write-Verbose "IBM Installation Manager updated successfully"
+                    
+                    # Clean up / Workaround for AntiVirus issue - hangs while deleting files
+                    Write-Verbose "Attempting to remove temporary installation files, after 1 minute the job will timeout and you may need to delete $iimTempDir directory manually."
+                    $rmjob = Start-Job { param($tdir) Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue } -ArgumentList $iimTempDir
+                    Wait-Job $rmjob -Timeout 60 | Out-Null
+                    Stop-Job $rmjob | Out-Null
+                    Receive-Job $rmjob | Out-Null
+                    Remove-Job $rmjob | Out-Null
+                } else {
+                    Write-Error "IBM Installation Manager was not updated.  Please check the update logs"
+                }
             } else {
-                Write-Error "IBM Installation Manager was not updated.  Please check the update logs"
+                $errorMsg = (&{if($updateProc) {$updateProc.StdOut} else {$null}})
+                Write-Error "An error occurred while updating IBM Installation Manager: $errorMsg"
             }
         } finally {
             if ($networkShare) {
@@ -273,6 +250,179 @@ Function Update-IBMInstallationManager() {
     } else {
         Write-Error "IBM Installation Manager installation/update depends on 7-Zip, please ensure 7-Zip is installed first"
     }
+}
+
+##############################################################################################################
+# Install-IBMProductViaResponseFile
+#   Installs and IBM Product based on the response file specified
+##############################################################################################################
+Function Install-IBMProductViaResponseFile() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    param (
+    	[parameter(Mandatory = $true)]
+		[System.String]
+    	$ResponseFile,
+
+    	[parameter(Mandatory = $false)]
+		[System.String]
+		$InstallLog
+	)
+
+	Write-Verbose "Installing IBM Product via Response File"
+    [bool] $installed = $false
+    
+    #Validate Parameters
+    if (!(Test-Path($ResponseFile) -PathType Leaf)) {
+        Write-Error "Parameter ResponseFile with value=$ResponseFile could not be found or is not a valid process path"
+    } else {
+        $iimHome = Get-IBMInstallationManagerHome
+        if (!(Test-Path($iimHome) -PathType Container)) {
+            Write-Error "IBM Installation Manager Home Location is invalid: $iimHome"
+        } else {
+            #Setup Install Process
+            $imclExe = Join-Path -Path $iimHome -ChildPath "\eclipse\tools\imcl.exe"
+            [string[]] $installArgs = @('input', $ResponseFile)
+            if ($InstallLog -and (!([string]::IsNullOrEmpty($InstallLog)))) {
+                $installArgs += @('-log', $InstallLog)
+            }
+            $installArgs += '-acceptLicense'
+            $installProc = Invoke-ProcessHelper $imclExe $installArgs
+            if ($installProc -and ($installProc.ExitCode -eq 0)) {
+                $stdout = $installProc.StdOut
+                if ($stdout) {
+                    # Look for any potential error codes on stdout (based on IBM's error message IDs)
+                    $errorFound = $stdout -match "CRIM[A-Z]?\d{0,5}?E"
+                    if ($errorFound) {
+                        Write-Error "An error occurred while installing the IBM product specified: $stdout"
+                    } else {
+                        Write-Verbose ($installProc.StdOut)
+                        $installed = $true
+                    }
+                }
+            } else {
+                $errorMsg = $installProc.StdOut
+                Write-Error "An error occurred while installing the IBM product specified: $errorMsg"
+            }
+        }
+    }
+    Return $installed
+}
+
+##############################################################################################################
+# New-IBMInstallationManagerResponseFile
+#   Generates a new response file based on the template specified.
+#      - Updates the repository locations from the ProductMedia parameter along with the extracted media folder
+#      - Updates variables in response file from the Variables hashtable
+#      - Converts credential variables to hashed passwords
+##############################################################################################################
+Function New-IBMInstallationManagerResponseFile {
+    param (
+        [parameter(Mandatory = $true)]
+        [String]
+        $TargetPath,
+        
+        [parameter(Mandatory = $true)]
+        [String]
+        $ResponseFileTemplate,
+
+        [parameter(Mandatory = $true)]
+        [IBMProductMedia]
+        $ProductMedia,
+        
+        [parameter(Mandatory = $true)]
+        [String]
+        $ExtractedMediaDirectory,
+        
+        [parameter(Mandatory = $false)]
+        [Hashtable]
+        $Variables
+    )
+    
+    $fileCreated = $false
+    Write-Verbose "Creating new response file from template: $ResponseFileTemplate"
+
+    if (([string]::IsNullOrEmpty($ResponseFileTemplate)) -and (!(Test-Path($ResponseFileTemplate)))) {
+        Write-Verbose "Response File template not found: $ResponseFileTemplate"
+        Return $false
+    }
+    
+    [XML] $responseFileXML = Get-Content $ResponseFileTemplate
+    $rootNode = $responseFileXML.ChildNodes[1]
+
+    #Update response file with the product specific repository locations
+    $serverNode = $responseFileXML.SelectSingleNode("//agent-input/server")
+    if (!($serverNode)) {
+        $serverNode = $responseFileXML.CreateElement("server")
+        $rootNode.InsertBefore($serverNode, $rootNode.FirstChild) | Out-Null
+    } else {
+        $serverNode.RemoveAll()
+    }
+    $repositoryList = $ProductMedia.GetRepositoryLocations($ExtractedMediaDirectory, $true)
+    
+    if ($repositoryList -and ($repositoryList.Count -gt 0)) {
+        Foreach ($repositoryLocation in $repositoryList) {
+            $repositoryNode = $responseFileXML.CreateElement("repository")
+            $locationAttr = $responseFileXML.CreateAttribute("location")
+            $locationAttr.Value = $repositoryLocation
+            $repositoryNode.Attributes.Append($locationAttr) | Out-Null
+            $serverNode.AppendChild($repositoryNode) | Out-Null
+        }
+        
+        #Update variables in new response files with the values provided
+        $variablesNode = $responseFileXML.SelectSingleNode("//agent-input/variables")
+        if (!($variablesNode) -and $Variables -and ($Variables.Count -gt 0)) {
+            $variablesNode = $responseFileXML.CreateElement("variables")
+            $rootNode.InsertBefore($variablesNode, $rootNode.FirstChild) | Out-Null
+        }
+
+        Foreach ($varName in $Variables.Keys) {
+            $varType = ($Variables[$varName]).GetType().Name
+            $varValue = $null
+            if ($varType -eq "String") {
+                $varValue = $Variables[$varName]
+            } elseif ($varType -eq "PSCredential") {
+                # Credential object passed as variable, hash its password and added to response file
+                $cred = [System.Management.Automation.PSCredential] $Variables[$varName]
+                [string]$hashedPwd = ConvertTo-HashedPassword $cred
+                if (!([string]::IsNullOrEmpty($hashedPwd)))
+                {
+                    $varValue = $hashedPwd
+                }
+            } elseif ($varType -eq "Boolean") {
+                $varValue = (&{if($Variables[$varName]) {"true"} else {"false"}})
+            } else {
+                $varValue = $Variables[$varName]
+            }
+
+            $varNode = $responseFileXML.SelectSingleNode("//agent-input/variables/variable[@name='$varName']")
+            if ($varNode) {
+                $varValueAttr = $varNode.Attributes.GetNamedItem("value")
+                $varValueAttr.Value = $varValue
+            } else {
+                $varNode = $responseFileXML.CreateElement("variable")
+                $varNameAttr = $responseFileXML.CreateAttribute("name")
+                $varValueAttr = $responseFileXML.CreateAttribute("value")
+                $varNameAttr.Value = $varName
+                $varValueAttr.Value = $varValue
+                $varNode.Attributes.Append($varNameAttr) | Out-Null
+                $varNode.Attributes.Append($varValueAttr) | Out-Null
+                $variablesNode.AppendChild($varNode) | Out-Null
+            }
+        }
+    } else {
+        Write-Error "No media repositories found in the extracted media folder based on the ProductMedia specified"
+        $responseFileXML = $false
+    }
+    
+    try {
+        Write-Verbose "Saving new response file to the following location: $TargetPath"
+        $responseFileXML.Save($TargetPath) | Out-Null
+        $fileCreated = $true
+    } catch {
+        Write-Error "Unable to save the response file to the target location specified: $TargetPath"
+    }
+    
+    Return $fileCreated
 }
 
 ##############################################################################################################
@@ -343,7 +493,7 @@ Function ConvertTo-HashedPassword() {
         $iimcPath = Join-Path -Path $iimHome -ChildPath "eclipse\IBMIMc.exe"
         if (Test-Path($iimcPath)) {
             $plainpwd = $UserCredential.GetNetworkCredential().Password
-            $iimExpression = '& ' + $iimcPath + ' -noSplash -silent encryptstring ' + $plainpwd
+            $iimExpression = '& ' + $iimcPath + ' -noSplash -silent encryptstring "' + $plainpwd + '"'
             $hashedPwd = Invoke-Expression $iimExpression
             Write-Verbose "ConvertTo-HashedPassword returning hashed password"
             Return $hashedPwd
@@ -370,6 +520,86 @@ Function Get-SevenZipExecutable {
 		}
 	}
 	return $sevenZipExe
+}
+
+##############################################################################################################
+# Invoke-ProcessHelper
+#   Process utility method that provides error handling, output buffering, etc
+##############################################################################################################
+Function Invoke-ProcessHelper() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    Param (
+        [Parameter(Mandatory=$True, Position=0)]
+        [String]
+        $ProcessFileName,
+
+        [Parameter(Mandatory=$False, Position=1)]
+        [String[]]
+        $ProcessArguments,
+
+        [Parameter(Mandatory=$False, Position=2)]
+        [String]
+        $WorkingDirectory,
+
+        [switch]
+        $DiscardStandardOut,
+
+        [switch]
+        $DiscardStandardErr
+    )
+    Write-Verbose "Invoke-ProcessHelper called.  File=$ProcessFileName"
+    $currentLocation = Get-Location
+
+    #Validate Parameters
+    if (!(Test-Path($ProcessFileName) -PathType Leaf)) {
+        Write-Error "Parameter ProcessFileName with value=$ProcessFileName could not be found or is not a valid process path"
+        $output = $null
+    }
+    
+    #Configure Process
+    $procStartInfo = New-object System.Diagnostics.ProcessStartInfo
+    $procStartInfo.CreateNoWindow = $true
+    $procStartInfo.UseShellExecute = $false
+    $procStartInfo.RedirectStandardOutput = $true
+    $procStartInfo.RedirectStandardError = $true
+    $procStartInfo.FileName = $ProcessFileName
+    if (($ProcessArguments -ne $null) -and ($ProcessArguments.Count -gt 0)) {
+        $procStartInfo.Arguments = $ProcessArguments
+    }
+    if ($WorkingDirectory -and (Test-Path $WorkingDirectory)) {
+        Set-Location $WorkingDirectory
+        $procStartInfo.WorkingDirectory = $WorkingDirectory
+    }
+    #Start the process
+    $exitcode = $null 
+    $stdout = $null
+    $stderr = $null
+    Try {
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $procStartInfo
+        [void]$process.Start()
+        if (!($DiscardStandardOut)) {
+            $stdout = $process.StandardOutput.ReadToEnd()
+        }
+        if (!($DiscardStandardErr)) {
+            $stderr = $process.StandardError.ReadToEnd()
+        }
+        $process.WaitForExit()
+        $exitcode = $process.ExitCode
+    } Catch {
+        Write-Error "Invoke-ProcessHelper FAILED $($_.Exception | Out-String)"
+    } finally {
+        # Set location back
+        if ($WorkingDirectory -and (Test-Path $WorkingDirectory)) {
+            Set-Location $currentLocation
+        }
+    }
+    
+    Return [PSCustomObject] @{
+        StdOut = $stdout
+        StdErr = $stderr
+        ExitCode = $exitcode
+    }
 }
 
 ##############################################################################################################
@@ -419,101 +649,4 @@ Function Set-NetUse {
     Invoke-Expression $cmd | Out-Null
     
     Return $randomDrive
-}
-
-##############################################################################################################
-# Expand-IBMInstallationMedia
-#   Utility cmdlet for expanding IBM media files. Supports files in local drive as well as network share.
-#   Depends on 7-Zip being installed
-##############################################################################################################
-Function Expand-IBMInstallationMedia() {
-    [CmdletBinding(SupportsShouldProcess=$False)]
-    param (
-        [parameter(Mandatory = $true)]
-        [string[]]
-        $MediaPath,
-        
-        [parameter(Mandatory = $true)]
-        [string]
-        $TargetPath,
-        
-        [switch]
-        $Cleanup,
-        
-        [switch]
-        $ExpandChildren,
-        
-        [string]
-        $ExpandChildrenPattern = $null,
-
-        [System.Management.Automation.PSCredential]
-        $MediaCredential
-    )
-    
-    $RetExpendedDir = $null
-    
-    if (!(Test-Path alias:zip)) {
-        #Setup 7-Zip Alias
-        $sevenZipExe = Get-SevenZipExecutable
-        if (!([string]::IsNullOrEmpty($sevenZipExe)) -and (Test-Path($sevenZipExe))) {
-            Set-Alias zip $sevenZipExe
-        } else {
-            Write-Error "Expand-IBMInstallationMedia depends on 7-Zip, please ensure 7-Zip is installed first"
-            Return
-        }
-    }
-    
-    if (($Cleanup) -and (!([string]::IsNullOrEmpty($TargetPath))) -and (Test-Path($TargetPath))) {
-        Write-Verbose "Cleaning up existing target path for installation media: $TargetPath"
-        Remove-Item $TargetPath -Recurse -Force
-    }
-    
-    New-Item -ItemType directory -Path $TargetPath | Out-Null
-
-    #Make sure media is available, map to random drive if network drive
-    $networkShare = $false
-    try {
-        if (($MediaPath.StartsWith("\\")) -and (!(Test-Path($MediaPath)))) {
-            Write-Verbose "Network Share detected, need to map"
-            Set-NetUse -SharePath (Split-Path($MediaPath)) -SharePathCredential $MediaCredential -Ensure "Present" | Out-Null
-            $networkShare = $true
-        }
-    } catch [System.UnauthorizedAccessException] {
-        Write-Verbose "Network Share detected, need to map"
-        Set-NetUse -SharePath (Split-Path($MediaPath)) -SharePathCredential $MediaCredential -Ensure "Present" | Out-Null
-        $networkShare = $true
-    }
-
-    try {
-        if (Test-Path($MediaPath)) {
-            Write-Verbose "Extracting installation media from: $MediaPath"
-    
-            zip x "-o$TargetPath" $MediaPath | Out-Null
-            
-            $RetExpendedDir = $TargetPath
-            
-            if ($ExpandChildren) {
-                $childItemPattern = "*.zip"
-                if ($ExpandChildrenPattern) {
-                    $childItemPattern = $ExpandChildrenPattern
-                }
-                
-                Get-ChildItem $childItemPattern -Path $TargetPath | % {
-                    $childPath = Join-Path -Path $TargetPath -ChildPath ($_.BaseName)
-                    zip x "-o$childPath" $_.FullName | Out-Null
-                    Remove-Item $_.FullName -force
-                    $RetExpendedDir = $childPath
-                }
-            }
-            Write-Verbose "Completed extracting media files to directory: $TargetPath"
-        } else {
-            Write-Error "Unable to access media files.  Media Path is: $MediaPath"
-        }
-    } finally {
-        if ($networkShare) {
-            Set-NetUse -SharePath (Split-Path($MediaPath)) -SharePathCredential $MediaCredential -Ensure "Absent" | Out-Null
-        }
-    }
-
-    Return $RetExpendedDir
 }
