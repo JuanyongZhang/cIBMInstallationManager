@@ -253,6 +253,99 @@ Function Update-IBMInstallationManager() {
 }
 
 ##############################################################################################################
+# Install-IBMProduct
+#   Extracts product media, generates response file, installs the product, and finally performs some clean up
+##############################################################################################################
+Function Install-IBMProduct() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    param (
+        [parameter(Mandatory = $true)]
+		[System.String]
+		$InstallMediaConfig,
+        
+        [parameter(Mandatory = $true)]
+		[System.String]
+		$ResponseFileTemplate,
+        
+    	[parameter(Mandatory = $false)]
+		[Hashtable]
+    	$Variables,
+        
+    	[parameter(Mandatory = $true)]
+		[System.String]
+		$SourcePath,
+
+        [System.Management.Automation.PSCredential]
+		$SourcePathCredential
+	)
+    $installed = $false
+	Write-Verbose "Installing IBM Product"
+    
+    if (!(Test-Path($InstallMediaConfig) -PathType Leaf)) {
+        Write-Error "Invalid install media configuration: $InstallMediaConfig"
+        Return $false
+    }
+    if (!(Test-Path($ResponseFileTemplate) -PathType Leaf)) {
+        Write-Error "Invalid response file: $ResponseFileTemplate"
+        Return $false
+    }
+    
+    [IBMProductMedia] $productMediaConfig = $null
+    [String] $productShortName = "ibmProduct"
+    
+    # Load media configuration and verify disk space for media extraction
+    try {
+        $productMediaConfig = Import-Clixml $InstallMediaConfig
+        if ($productMediaConfig) {
+            $productShortName = $productMediaConfig.ShortName
+            #Make temp directory for IIM files
+            $ibmprodTempDir = Join-Path $env:TEMP -ChildPath "$productShortName-install"
+            if (Test-Path -Path $ibmprodTempDir) {
+                Remove-Item $ibmprodTempDir -Recurse -Force
+            }
+            New-Item -ItemType directory -Path $ibmprodTempDir | Out-Null
+            $sizeNeededInMB = (($productMediaConfig.GetTotalSizeOnDisk()+500MB)/1MB)
+            $targetDrive = ((Get-Item $ibmprodTempDir).PSDrive.Name + ":")
+            $sizeAvailable = ((Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='$targetDrive'").FreeSpace / 1MB)
+            if ($sizeNeededInMB -ge $sizeAvailable) {
+                Write-Error "Insufficient disk space to extract the product media, size needed: $sizeNeededInMB MB size available: $sizeAvailable MB"
+                Return $false
+            }
+        }
+    } catch {
+        Write-Error "Unable to load the websphere media configuration from file: $InstallMediaConfig"
+    }
+    
+    if ($productMediaConfig) {
+        # Extract media
+        $mediaExtracted = $productMediaConfig.ExtractMedia($ibmprodTempDir, $SourcePath, $SourcePathCredential, $true)
+        if ($mediaExtracted) {
+            # Create Response File
+            $tempResponseFile = Join-Path -Path (Split-Path($ibmprodTempDir)) -ChildPath "$productShortName-responsefile-$(get-date -f yyyyMMddHHmmss).xml"
+            $responseFileCreated = New-IBMInstallationManagerResponseFile -TargetPath $tempResponseFile `
+                    -ResponseFileTemplate $ResponseFileTemplate -ProductMedia $productMediaConfig `
+                    -ExtractedMediaDirectory $ibmprodTempDir -Variables $Variables
+            if ($responseFileCreated) {
+                # Install Product
+                $productInstallLog = Join-Path -Path (Split-Path($ibmprodTempDir)) -ChildPath "$productShortName-install-$(get-date -f yyyyMMddHHmmss).log"
+                $installed = Install-IBMProductViaResponseFile -ResponseFile $tempResponseFile -InstallLog $productInstallLog
+                if ($installed) {
+                    # Clean up / Workaround for AntiVirus issue - hangs while deleting files
+                    Write-Verbose "Attempting to remove temporary installation files, after 1 minute the job will timeout and you may need to delete $ibmprodTempDir directory manually."
+                    $rmjob = Start-Job { param($tdir) Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue } -ArgumentList $ibmprodTempDir
+                    Wait-Job $rmjob -Timeout 60 | Out-Null
+                    Stop-Job $rmjob | Out-Null
+                    Receive-Job $rmjob | Out-Null
+                    Remove-Job $rmjob | Out-Null
+                }
+            }
+        }
+    }
+    
+    Return $installed
+}
+
+##############################################################################################################
 # Install-IBMProductViaResponseFile
 #   Installs and IBM Product based on the response file specified
 ##############################################################################################################
@@ -295,7 +388,13 @@ Function Install-IBMProductViaResponseFile() {
                     if ($errorFound) {
                         Write-Error "An error occurred while installing the IBM product specified: $stdout"
                     } else {
-                        Write-Verbose ($installProc.StdOut)
+                        # Look for any potential error codes on stdout (based on IBM's error message IDs)
+                        $warningFound = $stdout -match "CRIM[A-Z]?\d{0,5}?W"
+                        if ($warningFound) {
+                            Write-Warning ($stdout)
+                        } else {
+                            Write-Verbose ($stdout)
+                        }
                         $installed = $true
                     }
                 }
