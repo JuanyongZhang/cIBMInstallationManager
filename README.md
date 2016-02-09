@@ -25,6 +25,13 @@ DSC Resource or by leveraging the [x7Zip DSC Module](https://www.powershellgalle
 
 ## Versions
 
+### 1.0.2
+
+* Adds classes for modeling IBM product media
+* Adds support for Response File-Based installations
+* New CmdLets: **Install-IBMProduct**, **Install-IBMProductViaResponseFile**, **New-IBMInstallationManagerResponseFile**, **Invoke-ProcessHelper** 
+* Removed CmdLets: **Expand-IBMInstallationMedia** _Refactored into the new IBMProductMedia PowerShell Class
+
 ### 1.0.0
 
 * Initial release with the following resources 
