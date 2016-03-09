@@ -313,7 +313,7 @@ Function Install-IBMProduct() {
             }
         }
     } catch {
-        Write-Error "Unable to load the websphere media configuration from file: $InstallMediaConfig"
+        Write-Error "Error occured while parsing file $InstallMediaConfig: $_"
     }
     
     if ($productMediaConfig) {
@@ -748,4 +748,119 @@ Function Set-NetUse {
     Invoke-Expression $cmd | Out-Null
     
     Return $randomDrive
+}
+
+##############################################################################################################
+# Set-JavaProperties
+#   Updates a java property file based on the provided hashtable.  It allows to either append new Properties
+#   or only modify existing ones.
+##############################################################################################################
+Function Set-JavaProperties() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    param (
+        [parameter(Mandatory=$true,position=0)]
+        [String]
+        $PropertyFilePath,
+
+        [parameter(Mandatory=$true,position=1)]
+        [Hashtable]
+        $Properties,
+
+        [switch]
+        $DoNotAppend
+    )
+
+	[string] $finalFile = ""
+    [string[]] $updatedProps = @()
+	
+	if (Test-Path $PropertyFilePath) {
+		$file = gc $PropertyFilePath
+		
+		foreach($line in $file) {
+			if ((!($line.StartsWith('#'))) -and
+				(!($line.StartsWith(';'))) -and
+				(!($line.StartsWith(";"))) -and
+				(!($line.StartsWith('`'))) -and
+				(($line.Contains('=')))) {
+				$property=$line.split('=')[0]
+
+                $Properties.Keys | % {
+                    $propValue = $Properties.Item($_)
+                    if ($_ -eq $property)
+                    {
+					    Write-Debug "Updated property: $_=$propValue"
+					    $line = "$_=$propValue"
+                        $updatedProps += $_
+				    }
+                }
+			}
+            if ([string]::IsNullOrEmpty($line)) {
+                $finalFile += "$line"
+            } else {
+                $finalFile += "$line`n"
+            }
+		}
+        if (!($DoNotAppend)) {
+            # Properties that were not updated will be added to the end of the file
+            $Properties.Keys | % {
+                if (!($updatedProps.Contains($_))) {
+                    $propValue = $Properties.Item($_)
+                    Write-Debug "New property: $_=$propValue"
+                    $line = "$_=$propValue"
+                    $finalFile += "$line`n"
+                }
+            }
+        }
+		$finalFile | out-file "$PropertyFilePath" -encoding "ASCII"
+	} else {
+		Write-Error "Java Property file: $PropertyFilePath not found"
+	}
+}
+
+##############################################################################################################
+# Get-JavaProperties
+#   Reads a Java-style Properties file and returns a hashtable of its content (excludes comments) 
+##############################################################################################################
+Function Get-JavaProperties() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    param (
+        [parameter(Mandatory=$true,position=0)]
+        [string]
+        $PropertyFilePath,
+
+        [parameter(Mandatory=$false,position=1)]
+        [string[]]
+        $PropertyList
+    )
+
+    [hashtable] $props = @{}
+	
+	if (Test-Path $PropertyFilePath){
+		$file = gc $PropertyFilePath
+		
+		foreach($line in $file) {
+			if ((!($line.StartsWith('#'))) -and
+				(!($line.StartsWith(';'))) -and
+				(!($line.StartsWith(";"))) -and
+				(!($line.StartsWith('`'))) -and
+				(($line.Contains('=')))) {
+				$propName=$line.split('=', 2)[0]
+                $propValue=$line.split('=', 2)[1]
+
+                if ($PropertyList) {
+                    $PropertyList | % {
+                        if ($_ -eq $propName){
+                            $props.Add($propName, $propValue)
+				        }
+                    }
+                } else {
+                    $props.Add($propName, $propValue)
+                }
+			}
+		}
+	} else {
+		Write-Error "Java Property file: $PropertyFilePath not found"
+	}
+
+    Return $props
 }

@@ -9,7 +9,7 @@
 RootModule = 'cIBMInstallationManager.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.2'
+ModuleVersion = '1.0.3'
 
 # ID used to uniquely identify this module
 GUID = 'fc4c2ed1-00c4-4fee-93c8-13447d062921'
@@ -87,21 +87,20 @@ AliasesToExport = '*'
 PrivateData = @{
 
     PSData = @{
-
         # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+        Tags = @('IBM', 'InstallationManager', 'Utilities')
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://raw.githubusercontent.com/dennypc/cIBMInstallationManager/master/LICENSE'
 
         # A URL to the main website for this project.
-        # ProjectUri = ''
+        ProjectUri = 'https://github.com/dennypc/cIBMInstallationManager/'
 
         # A URL to an icon representing this module.
         # IconUri = ''
 
         # ReleaseNotes of this module
-        # ReleaseNotes = ''
+        ReleaseNotes = 'Added utility cmdlets for dealing with Java property files'
 
     } # End of PSData hashtable
 
