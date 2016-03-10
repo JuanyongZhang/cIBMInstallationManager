@@ -313,7 +313,7 @@ Function Install-IBMProduct() {
             }
         }
     } catch {
-        Write-Error "Error occured while parsing file $InstallMediaConfig: $_"
+        Write-Error "Error occured while parsing file $InstallMediaConfig : $_"
     }
     
     if ($productMediaConfig) {
@@ -571,6 +571,33 @@ Function Set-IBMInstallationManagerTempDir() {
     } else {
         Write-Error "The temp directory specified: $tempDir is invalid"
     }
+}
+
+##############################################################################################################
+# Get-IBMInstallationManagerTempDir
+#   Retrieves the temporary directory that IBM Installation Manager uses for installing products
+##############################################################################################################
+Function Get-IBMInstallationManagerTempDir() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    Param ()
+    
+    $tempDir = $null
+    
+    $iimHome = Get-IBMInstallationManagerHome
+    $iimIniPath = Join-Path -Path $iimHome -ChildPath "eclipse\IBMIM.ini"
+    if (Test-Path $iimIniPath) {
+        $iniFile = gc $iimIniPath
+        [string] $tmpdirJavaOption = "-Djava.io.tmpdir"
+        foreach($line in $iniFile) {
+            if ($line.Contains($tmpdirJavaOption)) {
+                $tempDir = $line.substring($line.IndexOf($tmpdirJavaOption)+$tmpdirJavaOption.Length+1)
+            }
+        }
+    } else {
+        Write-Error "$iimIniPath could not be located"
+    }
+    
+    Return $tempDir
 }
 
 ##############################################################################################################

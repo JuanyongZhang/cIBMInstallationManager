@@ -100,7 +100,7 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Added utility cmdlets for dealing with Java property files'
+        ReleaseNotes = 'Added TempDir support/DSC property. Added utility cmdlets for dealing with Java property files'
 
     } # End of PSData hashtable
 

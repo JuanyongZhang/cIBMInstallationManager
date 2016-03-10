@@ -30,6 +30,9 @@ class cIBMInstallationManager {
     
     [DscProperty()]
     [System.Management.Automation.PSCredential] $SourcePathCredential
+    
+    [DscProperty()]
+    [String] $TempDir
 
     <#
         Performs the installation or udpate of IBM Installation Manager.  It will only update an existing
@@ -39,10 +42,8 @@ class cIBMInstallationManager {
         try {
             if ($this.Ensure -eq [Ensure]::Present) {
                 Write-Verbose -Message 'Starting installation of IBM Installation Manager'
-                $sevenZipExe = Get-SevenZipExecutable
-                if (!([string]::IsNullOrEmpty($sevenZipExe)) -and (Test-Path($sevenZipExe))) {
-                    #7-Zip is installed, proceed with installation
-                    Set-Alias zip $sevenZipExe
+                $currentIIMHome = Get-IBMInstallationManagerHome
+                if ([string]::IsNullOrEmpty($currentIIMHome)) {
                     $iimRsrc = $this.Get()
                     if ($iimRsrc.Version) {
                         # There's an IBM Installation Manager installed, we may need to update it
@@ -57,7 +58,15 @@ class cIBMInstallationManager {
                         Install-IBMInstallationManager -iimHome $this.InstallationDirectory -iimMedia $this.SourcePath -iimMediaCredential $this.SourcePathCredential
                     }
                 } else {
-                    Write-Error "IBM Installation Manager installation/update depends on 7-Zip, please ensure 7-Zip is installed first"
+                    Write-Warning "IBM Installation Manager has already been installed"
+                }
+                $cTempDir = Get-IBMInstallationManagerTempDir
+                if ($this.TempDir -and ($this.TempDir -ne $cTempDir)) {
+                    Set-IBMInstallationManagerTempDir ($this.TempDir)
+                    $updatedTempDir = Get-IBMInstallationManagerTempDir
+                    if (!($updatedTempDir -eq $this.TempDir)) {
+                        Write-Error "Unable to update the IBM Installation Manager Temp Directory"
+                    }
                 }
             } else {
                 Write-Verbose "Uninstalling IBM Installation Manager (Not Yet Implemented)"
@@ -82,8 +91,10 @@ class cIBMInstallationManager {
                     (Get-Item($this.InstallationDirectory)).Name) -and (
                     (Get-Item($iimRsrc.InstallationDirectory)).Parent.FullName -eq 
                     (Get-Item($this.InstallationDirectory)).Parent.FullName)) {
-                    Write-Verbose "IBM Installation Manager is installed and configured correctly"
-                    $iimConfiguredCorrectly = $true
+                    if (!($this.TempDir) -or ($iimRsrc.TempDir -eq $this.TempDir)) {
+                        Write-Verbose "IBM Installation Manager is installed and configured correctly"
+                        $iimConfiguredCorrectly = $true
+                    }
                 }
             }
         } elseif (($iimRsrc.Ensure -eq $this.Ensure) -and ($iimRsrc.Ensure -eq [Ensure]::Absent)) {
@@ -105,6 +116,7 @@ class cIBMInstallationManager {
         $RetEnsure = [Ensure]::Absent
         $RetInsDir = $null
         $RetVersion = $null
+        $RetTempDir = $null
         
         $iimRegistryPath = Get-IBMInstallationManagerRegistryPath
 
@@ -117,6 +129,7 @@ class cIBMInstallationManager {
                 Write-Verbose "IBM Installation Manager Directory: $RetInsDir"
                 $RetVersion = (Get-ItemProperty($iimRegistryPath)).version
                 Write-Verbose "IBM Installation Manager Version: $RetVersion"
+                $RetTempDir = Get-IBMInstallationManagerTempDir
             }
         } else {
             Write-Verbose "IBM Installation Manager is NOT Present"
@@ -126,6 +139,7 @@ class cIBMInstallationManager {
             InstallationDirectory = $RetInsDir
             Version = $RetVersion
             Ensure = $RetEnsure
+            TempDir = $RetTempDir
         }
 
         return $returnValue
