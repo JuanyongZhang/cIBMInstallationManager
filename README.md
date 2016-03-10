@@ -18,12 +18,18 @@ PS> Install-Module -Name cIBMInstallationManager
 * **InstallationDirectory**: Installation path.  Default: C:\IBM\InstallationManager.
 * **SourcePath**: UNC or local file path to the zip file needed for the installation.
 * **SourcePathCredential**: Credential to be used to map sourcepath if a remote share is being specified.
+* **TempDir**: Overrides default Temp Folder used by IBM Installation Manager. Useful when Antivirus monitors the default folders and lock onto the temp files.  
 
 ## Depedencies
 [7-Zip](http://www.7-zip.org/ "7-Zip") needs to be installed on the target machine.  You can add 7-Zip to your DSC configuration by using the Package
 DSC Resource or by leveraging the [x7Zip DSC Module](https://www.powershellgallery.com/packages/x7Zip/ "x7Zip at PowerShell Gallery")
 
 ## Versions
+
+### 1.0.3
+
+* Added TempDir support/DSC property
+* New CmdLets: **Set-JavaProperties**, **Get-JavaProperties**, **Set-IBMInstallationManagerTempDir**, **Get-IBMInstallationManagerTempDir**
 
 ### 1.0.2
 
