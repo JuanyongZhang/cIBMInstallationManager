@@ -15,7 +15,7 @@ ModuleVersion = '1.0.3'
 GUID = 'fc4c2ed1-00c4-4fee-93c8-13447d062921'
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
-ScriptsToProcess = @('Classes\IBMProductMedia.ps1')
+# ScriptsToProcess = @()
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 NestedModules = @('cIBMInstallationManagerUtils')
