@@ -26,6 +26,14 @@ DSC Resource or by leveraging the [x7Zip DSC Module](https://www.powershellgalle
 
 ## Versions
 
+### 1.0.4
+
+* Added command-line based single product installation support (ideal for fixes, cumulative fixes, fixpacks, etc)
+* Added Get-IBMTempDir cmdlet that retrieves directory used by IIM or falls back to the user's/system's temp folder
+* Fixed issue with module loading and temporary directory handling
+* New CmdLets: **Install-IBMProductViaCmdLine**, **Invoke-IBMInstallationManagerCmdLine**, **Get-IBMTempDir**
+
+
 ### 1.0.3
 
 * Added TempDir support/DSC property

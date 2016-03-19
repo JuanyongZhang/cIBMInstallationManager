@@ -20,21 +20,38 @@ Class MediaFile {
     [Long] $SizeOnDisk
     #Zip files inside this media file that may need to be extracted
     [MediaFile[]] $SubMediaFiles
-
+    
     <#
     Extract this media file to the target path (Requires 7-Zip)
     #>
-    [Bool] ExtractMedia([String] $TargetPath, [String] $SourcePath) {
-        Return ($this._ExtractMedia($this, $TargetPath, $SourcePath))
+    [Bool] ExtractMedia([String] $TargetPath, [String] $SourcePath, [bool] $DeepScan = $false) {
+        Return ($this._ExtractMedia($this, $TargetPath, $SourcePath, $DeepScan))
     }
 
-    hidden [Bool] _ExtractMedia([MediaFile] $mediaFile, [String] $TargetPath, [String] $SourcePath) {
+    hidden [Bool] _ExtractMedia([MediaFile] $mediaFile, [String] $TargetPath, [String] $SourcePath, [bool] $DeepScan) {
         $extracted = $false
         $fullMediaPath = Join-Path $SourcePath -ChildPath ($mediaFile.Name)
-        
+        if (!(Test-Path alias:zip)) {
+            #Setup 7-Zip Alias
+            $sevenZipExe = Get-SevenZipExecutable
+            if (!([string]::IsNullOrEmpty($sevenZipExe)) -and (Test-Path($sevenZipExe))) {
+                Set-Alias zip $sevenZipExe -Scope 'Script'
+            } else {
+                Write-Error "MediaFile depends on 7-Zip, please ensure 7-Zip is installed first"
+                Return $false
+            }
+        }
         if (Test-Path($fullMediaPath)) {
             Write-Verbose "Extracting installation media from: $fullMediaPath"
             zip x "-o$TargetPath" "$fullMediaPath" | Out-Null
+            # Some media have an additional zip file needed to extract, find it, expand it, and delete it to save disk space
+            if ($DeepScan) {
+                $childZipFiles = Get-ChildItem *.zip -Path $TargetPath
+                foreach ($childZipFile in $childZipFiles) {
+                    zip x "-o$TargetPath" $childZipFile.FullName | Out-Null
+                    Remove-Item $childZipFile.FullName -force
+                }
+            }
             Write-Verbose "Completed extracting media files to directory: $TargetPath"
             $extracted = $true
         } else {
@@ -106,20 +123,10 @@ Class IBMProductMedia {
     <#
     Extracts all the required media for this product to be installed.
     #>
-    [Bool] ExtractMedia([String] $TargetPath, [String] $SourcePath, [System.Management.Automation.PSCredential] $SourcePathCredential, [Bool] $CleanUp) {
+    [Bool] ExtractMedia([String] $TargetPath, [String] $SourcePath, [System.Management.Automation.PSCredential] $SourcePathCredential, [Bool] $CleanUp, [bool] $DeepScan = $false) {
         if (([string]::IsNullOrEmpty($SourcePath)) -or ([string]::IsNullOrEmpty($TargetPath))) {
             Write-Error "TargetPath and SourcePath are required parameters"
             Return $false
-        }
-        if (!(Test-Path alias:zip)) {
-            #Setup 7-Zip Alias
-            $sevenZipExe = Get-SevenZipExecutable
-            if (!([string]::IsNullOrEmpty($sevenZipExe)) -and (Test-Path($sevenZipExe))) {
-                Set-Alias zip $sevenZipExe
-            } else {
-                Write-Error "ExtractMedia depends on 7-Zip, please ensure 7-Zip is installed first"
-                Return $false
-            }
         }
         #Make sure media is available, map to random drive if network drive
         $networkShare = $false
@@ -149,7 +156,7 @@ Class IBMProductMedia {
         }
 
         try {
-            $this._ExtractMedia($this, $TargetPath, $SourcePath)
+            $this._ExtractMedia($this, $TargetPath, $SourcePath, $DeepScan)
         } finally {
             if ($networkShare) {
                 Set-NetUse -SharePath (Split-Path($SourcePath)) -SharePathCredential $SourcePathCredential -Ensure "Absent" | Out-Null
@@ -159,7 +166,7 @@ Class IBMProductMedia {
         Return ($this._GetRepositoryLocations($this, $TargetPath, $CleanUp))
     }
 
-    hidden [Bool] _ExtractMedia([IBMProductMedia] $ibmProductMedia, [String] $TargetPath, [String] $SourcePath) {
+    hidden [Bool] _ExtractMedia([IBMProductMedia] $ibmProductMedia, [String] $TargetPath, [String] $SourcePath, [bool] $DeepScan) {
         [Bool] $extracted = $false
         [Bool] $hasMedia = $false
         [Bool] $mediaExtracted = $false
@@ -174,7 +181,7 @@ Class IBMProductMedia {
             $mediaExtracted = $true
             Foreach ($mediaFile in $ibmProductMedia.MediaFiles) {
                 if ($mediaExtracted) {
-                    $mediaExtracted = $mediaFile.ExtractMedia($productTargetPath, $SourcePath)
+                    $mediaExtracted = $mediaFile.ExtractMedia($productTargetPath, $SourcePath, $DeepScan)
                 }
             }
             $extracted = $mediaExtracted
@@ -185,7 +192,7 @@ Class IBMProductMedia {
                 $fixesExtracted = $true
                 Foreach ($mediaFile in $ibmProductMedia.RequiredFixesMediaFiles) {
                     if ($fixesExtracted) {
-                        $fixesExtracted = $mediaFile.ExtractMedia($productTargetPath, $SourcePath)
+                        $fixesExtracted = $mediaFile.ExtractMedia($productTargetPath, $SourcePath, $DeepScan)
                     }
                 }
                 $extracted = $fixesExtracted
@@ -194,7 +201,7 @@ Class IBMProductMedia {
         if (!$extracted -or (($hasFixes -or $hasMedia) -and $extracted)) {
             if ($ibmProductMedia.RequiredProducts -and ($ibmProductMedia.RequiredProducts.Count -gt 0)) {
                 Foreach ($ibmProduct in $ibmProductMedia.RequiredProducts) {
-                    $extracted = $this._ExtractMedia($ibmProduct, $TargetPath, $SourcePath)
+                    $extracted = $this._ExtractMedia($ibmProduct, $TargetPath, $SourcePath, $DeepScan)
                 }
             }
         }

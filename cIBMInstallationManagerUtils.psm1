@@ -83,7 +83,10 @@ Function Install-IBMInstallationManager() {
 		$iimMedia, 
 
         [System.Management.Automation.PSCredential]
-		$iimMediaCredential
+		$iimMediaCredential,
+        
+		[System.String]
+		$TempDir
 	)
 
 	Write-Verbose "Installing IBM Installation Manager"
@@ -93,7 +96,13 @@ Function Install-IBMInstallationManager() {
         Set-Alias zip $sevenZipExe
 
         #Make temp directory for IIM files
-        $iimTempDir = Join-Path $env:TEMP -ChildPath "iim_install"
+        $iimTempDir = $null
+        if ($TempDir -and (Test-Path $TempDir)) {
+            $iimTempDir = Join-Path $TempDir -ChildPath "iim_install"
+        } else {
+            $iimTempDir = Join-Path (Get-IBMTempDir) -ChildPath "iim_install"
+        }
+        
         Write-Verbose "Creating/Resteting temporary folder: $iimTempDir"
         if (Test-Path -Path $iimTempDir) {
             Remove-Item $iimTempDir -Recurse -Force
@@ -170,7 +179,10 @@ Function Update-IBMInstallationManager() {
 		$Version,
 
         [System.Management.Automation.PSCredential]
-		$iimMediaCredential
+		$iimMediaCredential,
+        
+		[System.String]
+		$TempDir
 	)
 
 	Write-Verbose "Updating IBM Installation Manager"
@@ -180,7 +192,12 @@ Function Update-IBMInstallationManager() {
         Set-Alias zip $sevenZipExe
         
         #Make temp directory for IIM files
-        $iimTempDir = Join-Path $env:TEMP -ChildPath "iim_update"
+        $iimTempDir = $null
+        if ($TempDir -and (Test-Path $TempDir)) {
+            $iimTempDir = Join-Path $TempDir -ChildPath "iim_update"
+        } else {
+            $iimTempDir = Join-Path (Get-IBMTempDir) -ChildPath "iim_update"
+        }
         Write-Verbose "Creating/Resteting temporary folder: $iimTempDir"
         if (Test-Path -Path $iimTempDir) {
             Remove-Item $iimTempDir -Recurse -Force
@@ -291,7 +308,8 @@ Function Install-IBMProduct() {
     }
     
     [IBMProductMedia] $productMediaConfig = $null
-    [String] $productShortName = "ibmProduct"
+    [string] $productShortName = "ibmProduct"
+    [string] $ibmprodTempDir = $null
     
     # Load media configuration and verify disk space for media extraction
     try {
@@ -299,11 +317,11 @@ Function Install-IBMProduct() {
         if ($productMediaConfig) {
             $productShortName = $productMediaConfig.ShortName
             #Make temp directory for IIM files
-            $ibmprodTempDir = Join-Path $env:TEMP -ChildPath "$productShortName-install"
-            if (Test-Path -Path $ibmprodTempDir) {
-                Remove-Item $ibmprodTempDir -Recurse -Force
+            $ibmprodTempDir = Join-Path -Path (Get-IBMTempDir) -ChildPath "$productShortName-install"
+            if ($ibmprodTempDir -and (Test-Path $ibmprodTempDir)) {
+                Remove-Item -Path $ibmprodTempDir -Recurse -Force
             }
-            New-Item -ItemType directory -Path $ibmprodTempDir | Out-Null
+            New-Item -ItemType Directory -Path $ibmprodTempDir | Out-Null
             $sizeNeededInMB = (($productMediaConfig.GetTotalSizeOnDisk()+500MB)/1MB)
             $targetDrive = ((Get-Item $ibmprodTempDir).PSDrive.Name + ":")
             $sizeAvailable = ((Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='$targetDrive'").FreeSpace / 1MB)
@@ -318,7 +336,7 @@ Function Install-IBMProduct() {
     
     if ($productMediaConfig) {
         # Extract media
-        $mediaExtracted = $productMediaConfig.ExtractMedia($ibmprodTempDir, $SourcePath, $SourcePathCredential, $true)
+        $mediaExtracted = $productMediaConfig.ExtractMedia($ibmprodTempDir, $SourcePath, $SourcePathCredential, $true, $false)
         if ($mediaExtracted) {
             # Create Response File
             $tempResponseFile = Join-Path -Path (Split-Path($ibmprodTempDir)) -ChildPath "$productShortName-responsefile-$(get-date -f yyyyMMddHHmmss).xml"
@@ -340,6 +358,91 @@ Function Install-IBMProduct() {
                 }
             }
         }
+    }
+    
+    Return $installed
+}
+
+##############################################################################################################
+# Install-IBMProductViaCmdLine
+#   Extracts product media, installs the product via cmdline, and finally performs some clean up
+##############################################################################################################
+Function Install-IBMProductViaCmdLine() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    param (
+        [parameter(Mandatory = $true)]
+		[System.String]
+		$ProductId,
+        
+        [parameter(Mandatory = $true)]
+		[System.String]
+		$InstallationDirectory,
+        
+    	[parameter(Mandatory = $false)]
+		[Hashtable]
+    	$Properties,
+        
+        [parameter(Mandatory = $true)]
+		[System.String[]]
+		$SourcePath,
+
+        [System.Management.Automation.PSCredential]
+		$SourcePathCredential
+	)
+    
+    $installed = $false
+	Write-Verbose "Installing IBM Product via Command Line"
+    
+    $ibmTempDir = Join-Path (Get-IBMTempDir) -ChildPath $ProductId
+    
+    [MediaFile[]] $mediaFiles = @()
+    [string] $parentSourcePath = $null
+    [bool] $singleRepo = $false
+    foreach ($sourcePathLocation in $SourcePath) {
+        [MediaFile] $mediaFile = [MediaFile]::new()
+        if (!($singleRepo)) {
+            $mediaFile.RepositoryConfigPath = "repository.config"
+            $singleRepo = $true
+        }
+        $mediaFile.Name = (Split-Path $sourcePathLocation -Leaf)
+        $mediaFiles += $mediaFile
+        $parentSourcePath = (Split-Path $sourcePathLocation -Parent)
+    }
+    
+    [IBMProductMedia] $productMedia = [IBMProductMedia]::new()
+    $productMedia.Name = $ProductId
+    $productMedia.MediaFiles = $mediaFiles
+    Write-Verbose "Extracting media to $parentSourcePath"
+    $mediaExtracted = $productMedia.ExtractMedia($ibmTempDir, $parentSourcePath, $SourcePathCredential, $true, $true)
+    
+    if ($mediaExtracted) {
+        # Generate installation arguments
+        $repos = $productMedia.GetRepositoryLocations($ibmTempDir, $true)
+        [string] $productIdArg = '"' + $ProductId + '"'
+        [string] $instDirArg = '"' + $InstallationDirectory + '"'
+        [string] $reposArg = '"' + ($repos -join ' ') + '"'
+        [string[]] $installArgs = @('install', $productIdArg, '-repositories', $reposArg, '-installationDirectory', $instDirArg)
+        
+        if ($Properties) {
+            foreach ($property in $Properties) {
+                $installArgs += ($property, $Properties[$property])
+            }
+        }
+        
+        $productInstallLog = Join-Path -Path (Split-Path($ibmTempDir)) -ChildPath "$ProductId-$(get-date -f yyyyMMddHHmmss).log"
+        $installed = Invoke-IBMInstallationManagerCmdLine $installArgs $productInstallLog
+        
+        if ($installed) {
+            # Clean up / Workaround for AntiVirus issue - hangs while deleting files
+            Write-Verbose "Attempting to remove temporary installation files, after 1 minute the job will timeout and you may need to delete $ibmTempDir directory manually."
+            $rmjob = Start-Job { param($tdir) Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue } -ArgumentList $ibmTempDir
+            Wait-Job $rmjob -Timeout 60 | Out-Null
+            Stop-Job $rmjob | Out-Null
+            Receive-Job $rmjob | Out-Null
+            Remove-Job $rmjob | Out-Null
+        }
+    } else {
+        Write-Error "Unable to extrace media"
     }
     
     Return $installed
@@ -368,43 +471,66 @@ Function Install-IBMProductViaResponseFile() {
     if (!(Test-Path($ResponseFile) -PathType Leaf)) {
         Write-Error "Parameter ResponseFile with value=$ResponseFile could not be found or is not a valid process path"
     } else {
-        $iimHome = Get-IBMInstallationManagerHome
-        if (!(Test-Path($iimHome) -PathType Container)) {
-            Write-Error "IBM Installation Manager Home Location is invalid: $iimHome"
-        } else {
-            #Setup Install Process
-            $imclExe = Join-Path -Path $iimHome -ChildPath "\eclipse\tools\imcl.exe"
-            [string[]] $installArgs = @('input', $ResponseFile)
-            if ($InstallLog -and (!([string]::IsNullOrEmpty($InstallLog)))) {
-                $installArgs += @('-log', $InstallLog)
-            }
-            $installArgs += '-acceptLicense'
-            $installProc = Invoke-ProcessHelper $imclExe $installArgs
-            if ($installProc -and ($installProc.ExitCode -eq 0)) {
-                $stdout = $installProc.StdOut
-                if ($stdout) {
-                    # Look for any potential error codes on stdout (based on IBM's error message IDs)
-                    $errorFound = $stdout -match "CRIM[A-Z]?\d{0,5}?E"
-                    if ($errorFound) {
-                        Write-Error "An error occurred while installing the IBM product specified: $stdout"
-                    } else {
-                        # Look for any potential error codes on stdout (based on IBM's error message IDs)
-                        $warningFound = $stdout -match "CRIM[A-Z]?\d{0,5}?W"
-                        if ($warningFound) {
-                            Write-Warning ($stdout)
-                        } else {
-                            Write-Verbose ($stdout)
-                        }
-                        $installed = $true
-                    }
-                }
-            } else {
-                $errorMsg = $installProc.StdOut
-                Write-Error "An error occurred while installing the IBM product specified: $errorMsg"
-            }
-        }
+        [string[]] $installArgs = @('input', $ResponseFile)
+        $installed = Invoke-IBMInstallationManagerCmdLine $installArgs $InstallLog
     }
     Return $installed
+}
+
+##############################################################################################################
+# Invoke-IBMInstallationManagerCmdLine
+#   Invokes the IBM InstallationManager Command Line (imcl) - accepts licenses automatically
+##############################################################################################################
+Function Invoke-IBMInstallationManagerCmdLine() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    param (
+        [parameter(Mandatory=$true,position=0)]
+		[System.String[]]
+    	$Arguments,
+        
+        [parameter(Mandatory=$false,position=1)]
+		[System.String]
+		$OutputLog
+	)
+    [bool] $success = $false
+    
+    #Validate Parameters
+    $iimHome = Get-IBMInstallationManagerHome
+    if (!(Test-Path($iimHome) -PathType Container)) {
+        Write-Error "IBM Installation Manager Home Location is invalid: $iimHome"
+    } else {
+        #Setup Process
+        $imclExe = Join-Path -Path $iimHome -ChildPath "\eclipse\tools\imcl.exe"
+        $Arguments += '-acceptLicense'
+        if ($OutputLog -and (!([string]::IsNullOrEmpty($OutputLog)))) {
+            [string] $logArg = '"' + $OutputLog + '"'
+            $Arguments += @('-log', $logArg)
+        }
+        $installProc = Invoke-ProcessHelper $imclExe $Arguments
+        if ($installProc -and ($installProc.ExitCode -eq 0)) {
+            $stdout = $installProc.StdOut
+            if ($stdout) {
+                # Look for any potential error codes on stdout (based on IBM's error message IDs)
+                $errorFound = $stdout -match "CRIM[A-Z]?\d{0,5}?E"
+                if ($errorFound) {
+                    Write-Error "An error was found while invoking the IIM cmd line: $stdout"
+                } else {
+                    # Look for any potential error codes on stdout (based on IBM's error message IDs)
+                    $warningFound = $stdout -match "CRIM[A-Z]?\d{0,5}?W"
+                    if ($warningFound) {
+                        Write-Warning ($stdout)
+                    } else {
+                        Write-Verbose ($stdout)
+                    }
+                    $success = $true
+                }
+            }
+        } else {
+            $errorMsg = $installProc.StdOut
+            Write-Error "An error occurred while invoking the IIM cmd line: $errorMsg"
+        }
+    }
+    Return $success
 }
 
 ##############################################################################################################
@@ -574,6 +700,23 @@ Function Set-IBMInstallationManagerTempDir() {
 }
 
 ##############################################################################################################
+# Get-IBMTempDir
+#   Retrieves the current temporary directory used for IBM.  Fallsback to the environment temp directory
+##############################################################################################################
+Function Get-IBMTempDir() {
+    [CmdletBinding(SupportsShouldProcess=$False)]
+    Param ()
+    
+    $tempDir = Get-IBMInstallationManagerTempDir
+    
+    if (!$tempDir -or !(Test-Path $tempDir)) {
+        $tempDir = $env:TEMP
+    }
+    
+    Return $tempDir
+}
+
+##############################################################################################################
 # Get-IBMInstallationManagerTempDir
 #   Retrieves the temporary directory that IBM Installation Manager uses for installing products
 ##############################################################################################################
@@ -584,17 +727,17 @@ Function Get-IBMInstallationManagerTempDir() {
     $tempDir = $null
     
     $iimHome = Get-IBMInstallationManagerHome
-    $iimIniPath = Join-Path -Path $iimHome -ChildPath "eclipse\IBMIM.ini"
-    if (Test-Path $iimIniPath) {
-        $iniFile = gc $iimIniPath
-        [string] $tmpdirJavaOption = "-Djava.io.tmpdir"
-        foreach($line in $iniFile) {
-            if ($line.Contains($tmpdirJavaOption)) {
-                $tempDir = $line.substring($line.IndexOf($tmpdirJavaOption)+$tmpdirJavaOption.Length+1)
+    if ($iimHome) {
+        $iimIniPath = Join-Path -Path $iimHome -ChildPath "eclipse\IBMIM.ini"
+        if (Test-Path $iimIniPath) {
+            $iniFile = gc $iimIniPath
+            [string] $tmpdirJavaOption = "-Djava.io.tmpdir"
+            foreach($line in $iniFile) {
+                if ($line.Contains($tmpdirJavaOption)) {
+                    $tempDir = $line.substring($line.IndexOf($tmpdirJavaOption)+$tmpdirJavaOption.Length+1)
+                }
             }
         }
-    } else {
-        Write-Error "$iimIniPath could not be located"
     }
     
     Return $tempDir
@@ -679,7 +822,6 @@ Function Invoke-ProcessHelper() {
     #Validate Parameters
     if (!(Test-Path($ProcessFileName) -PathType Leaf)) {
         Write-Error "Parameter ProcessFileName with value=$ProcessFileName could not be found or is not a valid process path"
-        $output = $null
     }
     
     #Configure Process

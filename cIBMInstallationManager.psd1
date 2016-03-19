@@ -9,7 +9,7 @@
 RootModule = 'cIBMInstallationManager.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.3'
+ModuleVersion = '1.0.4'
 
 # ID used to uniquely identify this module
 GUID = 'fc4c2ed1-00c4-4fee-93c8-13447d062921'
@@ -100,7 +100,7 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Added TempDir support/DSC property. Added utility cmdlets for dealing with Java property files'
+        ReleaseNotes = 'Added support for using command line arguments to install IBM products.  Fixed issue with importing DSC module.'
 
     } # End of PSData hashtable
 

@@ -50,12 +50,12 @@ class cIBMInstallationManager {
                         [System.Version] $currentVersion = New-Object -TypeName System.Version -ArgumentList $iimRsrc.Version
                         [System.Version] $newVersion = New-Object -TypeName System.Version -ArgumentList $this.Version
                         if ($newVersion.CompareTo($currentVersion) -gt 0) {
-                            Update-IBMInstallationManager -iimHome $this.InstallationDirectory -iimMedia $this.SourcePath -Version $this.Version -iimMediaCredential $this.SourcePathCredential
+                            Update-IBMInstallationManager -iimHome $this.InstallationDirectory -iimMedia $this.SourcePath -Version $this.Version -iimMediaCredential $this.SourcePathCredential -TempDir $this.TempDir
                         } else {
                             Write-Error "IBM Installation Manager already installed and its version ($currentVersion) is greater than the version specified ($newVersion)"
                         }
                     } else {
-                        Install-IBMInstallationManager -iimHome $this.InstallationDirectory -iimMedia $this.SourcePath -iimMediaCredential $this.SourcePathCredential
+                        Install-IBMInstallationManager -iimHome $this.InstallationDirectory -iimMedia $this.SourcePath -iimMediaCredential $this.SourcePathCredential -TempDir $this.TempDir
                     }
                 } else {
                     Write-Warning "IBM Installation Manager has already been installed"
